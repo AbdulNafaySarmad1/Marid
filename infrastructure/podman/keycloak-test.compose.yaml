@@ -1,0 +1,8 @@
+# Disposable authentication verification only. Never use this realm for real identities.
+services:
+  keycloak:
+    command: start-dev --import-realm
+    environment:
+      MARID_TEST_CLIENT_SECRET: ${MARID_TEST_CLIENT_SECRET:?set MARID_TEST_CLIENT_SECRET}
+    volumes:
+      - ../../tests/auth/marid-test-realm.json:/opt/keycloak/data/import/marid-test-realm.json:ro

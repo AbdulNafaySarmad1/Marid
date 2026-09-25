@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+!.env.example
+**/bin
+**/obj
+**/node_modules
+**/*.user
+**/*.log
+tests
+docs
+infrastructure
+scripts
+bootstrap.sh

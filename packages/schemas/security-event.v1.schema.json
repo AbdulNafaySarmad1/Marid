@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.marid.local/security-event/v1",
+  "title": "MARID security event ingestion request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source", "sourceEventId", "category", "sourceTimestamp", "sensorIdentity", "parserVersion", "rawEventReference", "entityReferences", "provenance", "confidence"],
+  "properties": {
+    "source": {"type": "string", "minLength": 1, "maxLength": 120},
+    "sourceEventId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "category": {"type": "string", "minLength": 1, "maxLength": 120},
+    "sourceTimestamp": {"type": "string", "format": "date-time"},
+    "sensorIdentity": {"type": "string", "minLength": 1, "maxLength": 200},
+    "parserVersion": {"type": "string", "minLength": 1, "maxLength": 80},
+    "rawEventReference": {"type": "string", "minLength": 1, "maxLength": 500},
+    "entityReferences": {"type": "array", "maxItems": 100, "items": {"type": "string", "minLength": 1, "maxLength": 300}},
+    "provenance": {"type": "object"},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "correlationId": {"type": ["string", "null"], "maxLength": 200},
+    "traceId": {"type": ["string", "null"], "maxLength": 200}
+  }
+}

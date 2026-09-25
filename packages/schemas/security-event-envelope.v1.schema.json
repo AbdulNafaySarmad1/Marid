@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.marid.local/security-event-envelope/v1",
+  "title": "MARID canonical security event envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "tenantId", "source", "sourceEventId", "category", "sourceTimestamp", "ingestedAt", "normalizedAt", "schemaVersion", "entityReferences", "provenance", "confidence", "correlationId", "traceId", "actorId", "serviceId", "structuredSha256", "parserVersion", "sensorIdentity", "rawEventReference", "normalizationWarnings"],
+  "properties": {
+    "id": {"type": "string", "format": "uuid"},
+    "tenantId": {"type": "string", "format": "uuid"},
+    "source": {"type": "string", "minLength": 1},
+    "sourceEventId": {"type": "string", "minLength": 1},
+    "category": {"type": "string", "minLength": 1},
+    "sourceTimestamp": {"type": "string", "format": "date-time"},
+    "ingestedAt": {"type": "string", "format": "date-time"},
+    "normalizedAt": {"type": "string", "format": "date-time"},
+    "schemaVersion": {"const": 1},
+    "entityReferences": {"type": "array", "items": {"type": "string"}},
+    "provenance": {"type": "object"},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "correlationId": {"type": ["string", "null"]},
+    "traceId": {"type": "string", "minLength": 1},
+    "actorId": {"type": "string", "minLength": 1},
+    "serviceId": {"type": "string", "minLength": 1},
+    "structuredSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "parserVersion": {"type": "string", "minLength": 1},
+    "sensorIdentity": {"type": "string", "minLength": 1},
+    "rawEventReference": {"type": "string", "minLength": 1},
+    "normalizationWarnings": {"type": "array", "items": {"type": "string"}
+    }
+  }
+}

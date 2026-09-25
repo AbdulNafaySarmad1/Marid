@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/apps/" />
+  <Folder Name="/apps/admin/">
+    <Project Path="apps/admin/Marid.Admin.csproj" />
+  </Folder>
+  <Folder Name="/apps/api/">
+    <Project Path="apps/api/Marid.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/" />
+  <Folder Name="/tests/unit/">
+    <Project Path="tests/unit/Marid.Api.Tests/Marid.Api.Tests.csproj" />
+  </Folder>
+</Solution>
