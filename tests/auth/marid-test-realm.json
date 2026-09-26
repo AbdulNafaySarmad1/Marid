@@ -25,6 +25,26 @@
         "include.in.token.scope": "true",
         "display.on.consent.screen": "false"
       }
+    },
+    {
+      "name": "evidence.read",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
+    },
+    {
+      "name": "evidence.download",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
+    },
+    {
+      "name": "exports.read",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
+    },
+    {
+      "name": "exports.download",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
     }
   ],
   "clients": [
@@ -101,7 +121,7 @@
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "secret": "${MARID_TEST_CLIENT_SECRET}",
-      "defaultClientScopes": ["incidents.read", "deployment.domains.read"],
+      "defaultClientScopes": ["incidents.read", "deployment.domains.read", "evidence.read", "evidence.download", "exports.read", "exports.download"],
       "protocolMappers": [
         {
           "name": "marid-api-audience",

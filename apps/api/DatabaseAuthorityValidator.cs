@@ -17,6 +17,10 @@ public static class DatabaseAuthorityValidator
            AND NOT has_table_privilege(current_user, 'public.tenant_role_grants', 'INSERT')
            AND NOT has_table_privilege(current_user, 'public.deployment_domains', 'INSERT')
            AND NOT has_table_privilege(current_user, 'public.deployment_domains', 'UPDATE')
+           AND NOT has_table_privilege(current_user, 'public.evidence_objects', 'UPDATE')
+           AND NOT has_table_privilege(current_user, 'public.evidence_objects', 'DELETE')
+           AND NOT has_table_privilege(current_user, 'public.audit_events', 'UPDATE')
+           AND NOT has_table_privilege(current_user, 'public.audit_events', 'DELETE')
            AND (
              SELECT count(*)
              FROM pg_class c
@@ -25,11 +29,15 @@ public static class DatabaseAuthorityValidator
                  'security_events', 'incidents', 'audit_events', 'tenant_controls',
                  'capabilities', 'engagement_scopes', 'response_proposals',
                  'response_proposal_events', 'approval_decisions',
-                 'tenant_principals', 'tenant_role_grants', 'deployment_domains'
+                 'tenant_principals', 'tenant_role_grants', 'deployment_domains',
+                 'evidence_objects', 'event_evidence_links', 'operator_sessions',
+                 'action_execution_records', 'retention_policies', 'legal_holds',
+                 'export_schedules', 'export_jobs', 'export_artifacts', 'export_deliveries',
+                 'incident_activity', 'incident_event_links'
                ])
                AND c.relrowsecurity AND c.relforcerowsecurity
                AND NOT pg_has_role(current_user, c.relowner, 'member')
-           ) = 12
+           ) = 24
         FROM pg_roles r
         WHERE r.rolname = current_user
         """;

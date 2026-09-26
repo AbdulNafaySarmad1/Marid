@@ -12,7 +12,21 @@ public static class PermissionMap
         ["response.read"] = ["RESPONDER", "APPROVER", "AUDITOR"],
         ["response.propose"] = ["RESPONDER"],
         ["response.approve"] = ["APPROVER"],
-        ["deployment.domains.read"] = ["AUDITOR", "INCIDENT_MANAGER"]
+        ["deployment.domains.read"] = ["AUDITOR", "INCIDENT_MANAGER"],
+        ["evidence.ingest"] = ["EVENT_INGESTOR"],
+        ["evidence.read"] = ["ANALYST", "AUDITOR", "INCIDENT_MANAGER"],
+        ["evidence.download"] = ["AUDITOR", "INCIDENT_MANAGER"],
+        ["exports.create"] = ["AUDITOR", "INCIDENT_MANAGER"],
+        ["exports.read"] = ["AUDITOR", "INCIDENT_MANAGER"],
+        ["exports.download"] = ["AUDITOR", "INCIDENT_MANAGER"],
+        ["operator.session"] = ["AUDITOR", "RESPONDER", "INCIDENT_MANAGER"],
+        ["operator.session.AUDITOR"] = ["AUDITOR"],
+        ["operator.session.RESPONDER"] = ["RESPONDER"],
+        ["operator.session.INCIDENT_MANAGER"] = ["INCIDENT_MANAGER"],
+        ["response.record_execution"] = ["RESPONDER"],
+        ["exports.admin"] = ["INCIDENT_MANAGER"],
+        ["retention.read"] = ["AUDITOR", "INCIDENT_MANAGER"],
+        ["retention.admin"] = ["INCIDENT_MANAGER"]
     };
 
     public static bool Allows(string permission, string role) =>

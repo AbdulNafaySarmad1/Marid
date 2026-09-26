@@ -45,7 +45,11 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization(options =>
 {
     foreach (var scope in new[] { "events.ingest", "incidents.read", "incidents.write",
-                                 "response.read", "response.propose", "deployment.domains.read" })
+                                 "response.read", "response.propose", "deployment.domains.read",
+                                 "evidence.ingest", "evidence.read", "evidence.download",
+                                 "exports.create", "exports.read", "exports.download",
+                                 "operator.session", "response.record_execution",
+                                 "exports.admin", "retention.read", "retention.admin" })
         options.AddPolicy(scope, policy => policy.RequireAuthenticatedUser()
             .RequireAssertion(context => ScopeAuthorizer.HasScope(context.User, scope)));
     options.AddPolicy("response.approve", policy => policy.RequireAuthenticatedUser()
@@ -54,6 +58,32 @@ builder.Services.AddAuthorization(options =>
 });
 
 builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
+builder.Services.AddSingleton<TenantDb>();
+builder.Services.AddSingleton<IObjectStore>(new FileObjectStore(
+    builder.Configuration["MARID_OBJECT_ROOT"]));
+builder.Services.AddSingleton<EvidenceStore>();
+builder.Services.AddSingleton<ExportStore>();
+builder.Services.AddSingleton<OperatorSessionStore>();
+builder.Services.AddSingleton<ActionExecutionStore>();
+builder.Services.AddSingleton<RetentionStore>();
+builder.Services.AddSingleton<ExportScheduleStore>();
+var workerConnection = builder.Configuration["MARID_WORKER_CONNECTION"];
+if (!string.IsNullOrWhiteSpace(workerConnection))
+{
+    var workerBuilder = new NpgsqlConnectionStringBuilder(workerConnection);
+    if (workerBuilder.Username != "marid_worker" ||
+        (!builder.Environment.IsDevelopment() && workerBuilder.SslMode != SslMode.VerifyFull))
+        throw new InvalidOperationException("The export worker needs marid_worker and verified database TLS.");
+    builder.Services.AddSingleton(new WorkerDatabase(NpgsqlDataSource.Create(workerConnection)));
+    builder.Services.AddHostedService(sp => new ExportWorker(
+        sp.GetRequiredService<WorkerDatabase>().DataSource,
+        sp.GetRequiredService<IObjectStore>(),
+        sp.GetRequiredService<ILogger<ExportWorker>>()));
+    builder.Services.AddHostedService(sp => new RetentionWorker(
+        sp.GetRequiredService<WorkerDatabase>().DataSource,
+        sp.GetRequiredService<IObjectStore>(),
+        sp.GetRequiredService<ILogger<RetentionWorker>>()));
+}
 builder.Services.AddSingleton<TenantStore>();
 builder.Services.AddSingleton<PolicyEngine>();
 builder.Services.AddSingleton<DecisionStore>();
@@ -83,7 +113,48 @@ app.Use(async (context, next) =>
     context.Response.Headers["X-Correlation-ID"] = correlationId.ToString();
     await next(context);
 });
+app.Use(async (context, next) =>
+{
+    await next(context);
+    if (context.Response.StatusCode is 401 or 403)
+        EvidenceMetrics.AuthorizationFailures.Add(1);
+});
 app.UseAuthentication();
+app.Use(async (http, next) =>
+{
+    if (!http.Request.Path.StartsWithSegments("/v1") ||
+        !TenantContext.TryFrom(http.User, out var actor) ||
+        actor.EffectiveActorType != "NOCTURNE_ENGINEER" ||
+        (http.Request.Method == "POST" &&
+         http.Request.Path.Equals("/v1/operator/sessions", StringComparison.OrdinalIgnoreCase)))
+    {
+        await next(http);
+        return;
+    }
+    if (!Guid.TryParse(http.Request.Headers["X-Marid-Operator-Session"], out var sessionId))
+    {
+        http.Response.StatusCode = 403;
+        return;
+    }
+    var sessions = http.RequestServices.GetRequiredService<OperatorSessionStore>();
+    var session = await sessions.ActiveAsync(actor, sessionId, http.RequestAborted);
+    var tenantAuthorization = http.RequestServices.GetRequiredService<TenantAuthorization>();
+    if (session is null || !await tenantAuthorization.IsAllowedAsync(actor,
+            "operator.session." + session.Role, http.RequestAborted))
+    {
+        http.Response.StatusCode = 403;
+        return;
+    }
+    try { await next(http); }
+    finally
+    {
+        await sessions.AuditHttpAsync(actor, session,
+            "operator.api_request", http.Request.Method + " " + http.Request.Path,
+            http.Response.StatusCode, (string)http.Items["CorrelationId"]!,
+            System.Diagnostics.Activity.Current?.TraceId.ToString() ?? http.TraceIdentifier,
+            CancellationToken.None);
+    }
+});
 app.UseAuthorization();
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" }));
@@ -106,6 +177,12 @@ app.MapGet("/health/ready", async (NpgsqlDataSource dataSource, CancellationToke
 });
 
 var api = app.MapGroup("/v1");
+EvidenceEndpoints.Map(api);
+ExportEndpoints.Map(api);
+OperatorEndpoints.Map(api);
+ActionExecutionEndpoints.Map(api);
+RetentionEndpoints.Map(api);
+ExportScheduleEndpoints.Map(api);
 api.MapGet("/deployment/domains", async (ClaimsPrincipal user,
     DeploymentDomainStore domains, TenantAuthorization authorization, CancellationToken ct) =>
 {
@@ -121,9 +198,14 @@ api.MapPost("/events", async (SecurityEventInput input, ClaimsPrincipal user,
     if (!await authorization.IsAllowedAsync(context, "events.ingest", ct)) return Results.Forbid();
     var errors = EventValidator.Validate(input);
     if (errors.Count > 0) return Results.ValidationProblem(errors);
-    var result = await store.IngestEventAsync(context, input,
-        System.Diagnostics.Activity.Current?.TraceId.ToString() ?? http.TraceIdentifier,
-        (string)http.Items["CorrelationId"]!, ct);
+    EventIngestResult result;
+    try
+    {
+        result = await store.IngestEventAsync(context, input,
+            System.Diagnostics.Activity.Current?.TraceId.ToString() ?? http.TraceIdentifier,
+            (string)http.Items["CorrelationId"]!, ct);
+    }
+    catch (EvidenceNotFoundException) { return Results.NotFound(); }
     if (result.ConflictingDuplicate)
         return Results.Conflict(new { reason = "Source event ID is already used for different content." });
     return result.Created
@@ -158,6 +240,46 @@ api.MapPost("/incidents", async (CreateIncidentInput input, ClaimsPrincipal user
         (string)http.Items["CorrelationId"]!,
         System.Diagnostics.Activity.Current?.TraceId.ToString() ?? http.TraceIdentifier, ct);
     return Results.Created($"/v1/incidents/{incident.Id}", incident);
+}).RequireAuthorization("incidents.write");
+
+api.MapGet("/incidents/{incidentId:guid}/activity", async (Guid incidentId,
+    ClaimsPrincipal user, TenantStore store, TenantAuthorization authorization,
+    CancellationToken ct) =>
+{
+    if (!TenantContext.TryFrom(user, out var context)) return Results.Forbid();
+    if (!await authorization.IsAllowedAsync(context, "incidents.read", ct)) return Results.Forbid();
+    var history = await store.ListIncidentActivityAsync(context, incidentId, ct);
+    return history is null ? Results.NotFound() : Results.Ok(history);
+}).RequireAuthorization("incidents.read");
+
+api.MapPost("/incidents/{incidentId:guid}/activity", async (Guid incidentId,
+    IncidentActivityInput input, ClaimsPrincipal user, TenantStore store,
+    TenantAuthorization authorization, HttpContext http, CancellationToken ct) =>
+{
+    if (!TenantContext.TryFrom(user, out var context)) return Results.Forbid();
+    if (!await authorization.IsAllowedAsync(context, "incidents.write", ct)) return Results.Forbid();
+    try
+    {
+        var activity = await store.AddIncidentActivityAsync(context, incidentId,
+            input.Kind, input.Status, input.Note,
+            (string)http.Items["CorrelationId"]!,
+            System.Diagnostics.Activity.Current?.TraceId.ToString() ?? http.TraceIdentifier, ct);
+        return activity is null ? Results.NotFound()
+            : Results.Created($"/v1/incidents/{incidentId}/activity", activity);
+    }
+    catch (ArgumentException error) { return Results.Conflict(new { reason = error.Message }); }
+}).RequireAuthorization("incidents.write");
+
+api.MapPost("/incidents/{incidentId:guid}/events/{eventId:guid}", async (
+    Guid incidentId, Guid eventId, ClaimsPrincipal user, TenantStore store,
+    TenantAuthorization authorization, HttpContext http, CancellationToken ct) =>
+{
+    if (!TenantContext.TryFrom(user, out var context)) return Results.Forbid();
+    if (!await authorization.IsAllowedAsync(context, "incidents.write", ct)) return Results.Forbid();
+    return await store.LinkIncidentEventAsync(context, incidentId, eventId,
+        (string)http.Items["CorrelationId"]!,
+        System.Diagnostics.Activity.Current?.TraceId.ToString() ?? http.TraceIdentifier, ct)
+        ? Results.NoContent() : Results.NotFound();
 }).RequireAuthorization("incidents.write");
 
 api.MapPost("/response/proposals", async (ResponseProposalInput input,
@@ -218,3 +340,9 @@ await DatabaseAuthorityValidator.EnsureAsync(
 app.Run();
 
 public partial class Program;
+
+public sealed class WorkerDatabase(NpgsqlDataSource dataSource) : IAsyncDisposable
+{
+    public NpgsqlDataSource DataSource { get; } = dataSource;
+    public ValueTask DisposeAsync() => DataSource.DisposeAsync();
+}

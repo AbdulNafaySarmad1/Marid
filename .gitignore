@@ -1,6 +1,8 @@
 **/bin/
 **/obj/
 **/node_modules/
+**/__pycache__/
+*.pyc
 **/.next/
 .env
 .env.*

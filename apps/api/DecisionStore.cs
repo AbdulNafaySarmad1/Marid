@@ -304,25 +304,9 @@ public sealed class DecisionStore(NpgsqlDataSource dataSource, PolicyEngine poli
         _ => throw new InvalidOperationException("Unknown stored approval decision.")
     };
 
-    private static async Task WriteAuditAsync(NpgsqlConnection connection,
+    private static Task WriteAuditAsync(NpgsqlConnection connection,
         NpgsqlTransaction transaction, TenantContext context, string action,
-        Guid objectId, string correlationId, string traceId, CancellationToken ct)
-    {
-        await using var command = new NpgsqlCommand("""
-            INSERT INTO audit_events
-                (id, tenant_id, actor_id, service_id, action, object_id,
-                 correlation_id, trace_id)
-            VALUES (@id, @tenant_id, @actor_id, @service_id, @action, @object_id,
-                    @correlation_id, @trace_id)
-            """, connection, transaction);
-        command.Parameters.AddWithValue("id", Guid.NewGuid());
-        command.Parameters.AddWithValue("tenant_id", context.TenantId);
-        command.Parameters.AddWithValue("actor_id", context.ActorId);
-        command.Parameters.AddWithValue("service_id", context.ServiceId);
-        command.Parameters.AddWithValue("action", action);
-        command.Parameters.AddWithValue("object_id", objectId);
-        command.Parameters.AddWithValue("correlation_id", correlationId);
-        command.Parameters.AddWithValue("trace_id", traceId);
-        await command.ExecuteNonQueryAsync(ct);
-    }
+        Guid objectId, string correlationId, string traceId, CancellationToken ct) =>
+        AuditLedger.WriteAsync(connection, transaction, context, action,
+            objectId, correlationId, traceId, ct);
 }

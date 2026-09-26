@@ -34,6 +34,19 @@ public static class TenantCreator
                 """, connection, transaction);
             control.Parameters.AddWithValue("tenant_id", newId);
             await control.ExecuteNonQueryAsync(cancellationToken);
+            await using var schedule = new NpgsqlCommand(
+                "INSERT INTO export_schedules (tenant_id) VALUES (@tenant_id)",
+                connection, transaction);
+            schedule.Parameters.AddWithValue("tenant_id", newId);
+            await schedule.ExecuteNonQueryAsync(cancellationToken);
+            await using var retention = new NpgsqlCommand("""
+                INSERT INTO retention_policies (tenant_id, category, retain_days)
+                VALUES (@tenant_id, 'TELEMETRY', 365), (@tenant_id, 'RAW', 365),
+                       (@tenant_id, 'AUDIT', 2555), (@tenant_id, 'INCIDENT', 2555),
+                       (@tenant_id, 'EXPORT', 365)
+                """, connection, transaction);
+            retention.Parameters.AddWithValue("tenant_id", newId);
+            await retention.ExecuteNonQueryAsync(cancellationToken);
             await using var audit = new NpgsqlCommand("""
                 INSERT INTO audit_events
                     (id, tenant_id, actor_id, service_id, action, object_id, correlation_id, trace_id)

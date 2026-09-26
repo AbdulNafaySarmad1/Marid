@@ -13,11 +13,13 @@ $listener.Stop()
 
 $ownerPassword = [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(36))
 $appPassword = [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(36))
+$workerPassword = [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(36))
 $keycloakPassword = [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(36))
 $environmentNames = @(
-    'MARID_DB_OWNER_PASSWORD', 'MARID_DB_APP_PASSWORD', 'MARID_KEYCLOAK_ADMIN_PASSWORD',
+    'MARID_DB_OWNER_PASSWORD', 'MARID_DB_APP_PASSWORD', 'MARID_DB_WORKER_PASSWORD', 'MARID_KEYCLOAK_ADMIN_PASSWORD',
     'MARID_DB_HOST_PORT', 'MARID_DB_PORT', 'MARID_ADMIN_PASSWORD_STDIN',
-    'MARID_TEST_OWNER_PASSWORD', 'MARID_TEST_APP_PASSWORD', 'MARID_TEST_DB_PORT'
+    'MARID_TEST_OWNER_PASSWORD', 'MARID_TEST_APP_PASSWORD',
+    'MARID_TEST_WORKER_PASSWORD', 'MARID_TEST_DB_PORT'
 )
 $previousEnvironment = @{}
 foreach ($name in $environmentNames) {
@@ -25,12 +27,14 @@ foreach ($name in $environmentNames) {
 }
 $env:MARID_DB_OWNER_PASSWORD = $ownerPassword
 $env:MARID_DB_APP_PASSWORD = $appPassword
+$env:MARID_DB_WORKER_PASSWORD = $workerPassword
 $env:MARID_KEYCLOAK_ADMIN_PASSWORD = $keycloakPassword
 $env:MARID_DB_HOST_PORT = [string]$hostPort
 $env:MARID_DB_PORT = [string]$hostPort
 $env:MARID_ADMIN_PASSWORD_STDIN = '1'
 $env:MARID_TEST_OWNER_PASSWORD = $ownerPassword
 $env:MARID_TEST_APP_PASSWORD = $appPassword
+$env:MARID_TEST_WORKER_PASSWORD = $workerPassword
 $env:MARID_TEST_DB_PORT = [string]$hostPort
 $started = $false
 
@@ -62,6 +66,7 @@ try {
         docker run --rm --network "${projectName}_default" `
             --mount "type=bind,source=$repoRoot,target=/src" -w /src `
             -e MARID_TEST_OWNER_PASSWORD -e MARID_TEST_APP_PASSWORD `
+            -e MARID_TEST_WORKER_PASSWORD `
             -e MARID_TEST_DB_HOST=postgres -e MARID_TEST_DB_PORT=5432 `
             mcr.microsoft.com/dotnet/sdk:10.0 dotnet test `
             tests/integration/Marid.Api.IntegrationTests/Marid.Api.IntegrationTests.csproj `
@@ -78,7 +83,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Disposable database restore failed.' }
         $restored = docker compose -p $projectName -f $composePath exec -T postgres `
             psql -At -v ON_ERROR_STOP=1 -U marid_owner -d marid_restore `
-            -c 'SELECT (SELECT count(*) FROM schema_migrations) = 4 AND (SELECT count(*) FROM tenants) >= 2 AND (SELECT count(*) FROM security_events) >= 1 AND (SELECT count(*) FROM tenant_role_grants) >= 1;'
+            -c 'SELECT (SELECT count(*) FROM schema_migrations) = 7 AND (SELECT count(*) FROM tenants) >= 2 AND (SELECT count(*) FROM security_events) >= 1 AND (SELECT count(*) FROM tenant_role_grants) >= 1;'
         if ($LASTEXITCODE -ne 0 -or ($restored | Out-String).Trim() -ne 't') {
             throw 'Restored database did not contain expected schema and tenant records.'
         }

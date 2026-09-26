@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+  '''(^|/)graphify-out/cache/''',
+  '''(^|/)(bin|obj)/''',
+  '''(^|/)__pycache__/'''
+]

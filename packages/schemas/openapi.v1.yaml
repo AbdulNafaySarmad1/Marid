@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
-  title: MARID Foundation API
-  version: 0.2.0
-  description: Tenant-scoped foundation API. Response execution is not implemented.
+  title: MARID Control Plane API
+  version: 0.3.0
+  description: Tenant-scoped control plane. Execution records do not execute tools.
 servers:
   - url: http://localhost:5056
 paths:
@@ -138,6 +138,255 @@ paths:
         '403': { description: Missing scope, human claim, or tenant context }
         '404': { description: Proposal not found in this tenant }
         '409': { description: Expired, self reviewed, altered, or already decided proposal }
+  /v1/evidence:
+    post:
+      summary: Stream one raw evidence object into private storage
+      description: Query metadata includes source, sourceEventId, sourceAt (UTC), sensorIdentity, parserVersion, and optional retentionClass. Maximum body is 64 MiB. A retry with the same source ID and bytes is idempotent.
+      security: [{ bearerAuth: [] }]
+      x-required-scope: evidence.ingest
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '201': { description: Evidence stored with SHA-256 digest }
+        '200': { description: Identical evidence already exists }
+        '400': { description: Invalid metadata or empty body }
+        '403': { description: Missing tenant ingest role or scope }
+        '409': { description: Source ID belongs to different evidence }
+        '413': { description: Body is too large }
+        '503': { description: Object storage is unavailable }
+  /v1/evidence/{id}:
+    get:
+      summary: Read tenant evidence metadata without exposing its object key
+      security: [{ bearerAuth: [] }]
+      x-required-scope: evidence.read
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Tenant evidence metadata }
+        '403': { description: Missing tenant role or scope }
+        '404': { description: No evidence with this ID in the token tenant }
+  /v1/evidence/{id}/content:
+    get:
+      summary: Verify digest and stream tenant raw evidence
+      security: [{ bearerAuth: [] }]
+      x-required-scope: evidence.download
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Verified evidence bytes }
+        '403': { description: Missing tenant role or scope }
+        '404': { description: No evidence with this ID in the token tenant }
+        '503': { description: Storage unavailable or integrity check failed }
+  /v1/exports:
+    post:
+      summary: Queue an asynchronous tenant export for an explicit UTC interval
+      security: [{ bearerAuth: [] }]
+      x-required-scope: exports.create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [periodStart, periodEnd, idempotencyKey]
+              properties:
+                periodStart: { type: string, format: date-time }
+                periodEnd: { type: string, format: date-time }
+                idempotencyKey: { type: string, minLength: 8, maxLength: 120 }
+      responses:
+        '202': { description: Job queued }
+        '200': { description: Same idempotent job already exists }
+        '400': { description: Invalid UTC interval }
+        '403': { description: Missing tenant role or scope }
+        '409': { description: Idempotency key belongs to a different interval }
+        '503': { description: Worker or object storage is unavailable }
+    get:
+      summary: List the latest 100 export jobs in the token tenant
+      security: [{ bearerAuth: [] }]
+      x-required-scope: exports.read
+      responses:
+        '200': { description: Tenant export jobs }
+  /v1/exports/schedule:
+    get:
+      summary: Read the tenant monthly UTC export schedule
+      security: [{ bearerAuth: [] }]
+      x-required-scope: exports.read
+      responses:
+        '200': { description: Schedule }
+        '404': { description: No schedule configured }
+    put:
+      summary: Set day 1 to 28 for monthly export generation
+      security: [{ bearerAuth: [] }]
+      x-required-scope: exports.admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled, dayOfMonth]
+              properties:
+                enabled: { type: boolean }
+                dayOfMonth: { type: integer, minimum: 1, maximum: 28 }
+      responses:
+        '204': { description: Schedule updated and audited }
+        '403': { description: Requires a human incident manager }
+  /v1/exports/{id}:
+    get:
+      summary: Read one tenant export job
+      security: [{ bearerAuth: [] }]
+      x-required-scope: exports.read
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Job status }
+        '404': { description: No job with this ID in the token tenant }
+  /v1/exports/{id}/artifacts:
+    get:
+      summary: List artifact IDs, names, sizes, and hashes for a tenant job
+      security: [{ bearerAuth: [] }]
+      x-required-scope: exports.read
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Artifact metadata }
+        '404': { description: No job with this ID in the token tenant }
+  /v1/exports/{id}/manifest:
+    get:
+      summary: Verify and stream the completed export manifest
+      security: [{ bearerAuth: [] }]
+      x-required-scope: exports.download
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: SHA-256 verified manifest JSON }
+        '404': { description: No completed job with this ID in the token tenant }
+        '503': { description: Storage or integrity failure }
+  /v1/exports/{id}/artifacts/{artifactId}:
+    get:
+      summary: Verify and stream one completed tenant export artifact
+      security: [{ bearerAuth: [] }]
+      x-required-scope: exports.download
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: artifactId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: SHA-256 verified JSON, Markdown, or NDJSON artifact }
+        '404': { description: No artifact with this ID in this tenant job }
+        '503': { description: Storage or integrity failure }
+  /v1/operator/sessions:
+    post:
+      summary: Start an audited Nocturne engineer session with ticket and reason
+      security: [{ bearerAuth: [] }]
+      x-required-scope: operator.session
+      responses:
+        '201': { description: Session started }
+        '403': { description: Requires signed engineer class and tenant role }
+  /v1/operator/sessions/{id}/end:
+    post:
+      summary: Close an active engineer session
+      security: [{ bearerAuth: [] }]
+      x-required-scope: operator.session
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Session ended and audited }
+        '404': { description: No active owned session }
+  /v1/operator/sessions/{id}/actions:
+    post:
+      summary: Append an out-of-band engineer action to the session audit
+      security: [{ bearerAuth: [] }]
+      x-required-scope: operator.session
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Action recorded }
+        '404': { description: No active owned session }
+  /v1/response/proposals/{proposalId}/execution-records:
+    post:
+      summary: Record an agent or service action outcome; does not execute a tool
+      security: [{ bearerAuth: [] }]
+      x-required-scope: response.record_execution
+      parameters:
+        - { name: proposalId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '201': { description: Linked execution evidence recorded }
+        '403': { description: Requires tenant responder service role }
+        '404': { description: No proposal in the token tenant }
+        '409': { description: Invalid or expired approval reference }
+  /v1/incidents/{incidentId}/activity:
+    get:
+      summary: Read tenant incident history
+      security: [{ bearerAuth: [] }]
+      x-required-scope: incidents.read
+      parameters:
+        - { name: incidentId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Incident activity }
+        '404': { description: No incident in the token tenant }
+    post:
+      summary: Append an investigation, remediation, or status transition
+      security: [{ bearerAuth: [] }]
+      x-required-scope: incidents.write
+      parameters:
+        - { name: incidentId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '201': { description: Activity recorded }
+        '404': { description: No incident in the token tenant }
+        '409': { description: Invalid status transition }
+  /v1/incidents/{incidentId}/events/{eventId}:
+    post:
+      summary: Link tenant evidence event to tenant incident
+      security: [{ bearerAuth: [] }]
+      x-required-scope: incidents.write
+      parameters:
+        - { name: incidentId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: eventId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Link created }
+        '404': { description: Incident or event is not in the token tenant }
+  /v1/retention/policies:
+    get:
+      summary: Read tenant retention periods by category
+      security: [{ bearerAuth: [] }]
+      x-required-scope: retention.read
+      responses:
+        '200': { description: Retention policies }
+  /v1/retention/policies/{category}:
+    put:
+      summary: Change a tenant retention period
+      security: [{ bearerAuth: [] }]
+      x-required-scope: retention.admin
+      parameters:
+        - { name: category, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Policy changed and audited }
+        '403': { description: Requires a human incident manager }
+  /v1/evidence/{evidenceId}/holds:
+    post:
+      summary: Apply a tenant legal hold to live raw evidence
+      security: [{ bearerAuth: [] }]
+      x-required-scope: retention.admin
+      parameters:
+        - { name: evidenceId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '201': { description: Legal hold applied or already active }
+        '404': { description: No live evidence in the token tenant }
+  /v1/evidence/{evidenceId}/holds/{holdId}/release:
+    post:
+      summary: Release a tenant legal hold with an audit event
+      security: [{ bearerAuth: [] }]
+      x-required-scope: retention.admin
+      parameters:
+        - { name: evidenceId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: holdId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Hold released }
+        '404': { description: No active hold in the token tenant }
 components:
   securitySchemes:
     bearerAuth:

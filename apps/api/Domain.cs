@@ -6,7 +6,7 @@ namespace Marid.Api;
 public enum PrincipalKind { Human, Service }
 
 public sealed record TenantContext(Guid TenantId, string ActorId, string ServiceId,
-    PrincipalKind Kind)
+    PrincipalKind Kind, string ActorType = "")
 {
     public static bool TryFrom(ClaimsPrincipal principal, out TenantContext context)
     {
@@ -24,9 +24,17 @@ public sealed record TenantContext(Guid TenantId, string ActorId, string Service
         if (!Guid.TryParse(tenantValue, out var tenantId) || tenantId == Guid.Empty ||
             string.IsNullOrWhiteSpace(actor) || string.IsNullOrWhiteSpace(service) ||
             kind is null) return false;
-        context = new TenantContext(tenantId, actor, service, kind.Value);
+        var actorType = kind == PrincipalKind.Human
+            ? principal.FindFirstValue("marid_actor_class") == "NOCTURNE_ENGINEER"
+                ? "NOCTURNE_ENGINEER" : "CLIENT_USER"
+            : principal.FindFirstValue("marid_actor_class") == "MARID_AGENT"
+                ? "MARID_AGENT" : "SERVICE";
+        context = new TenantContext(tenantId, actor, service, kind.Value, actorType);
         return true;
     }
+
+    public string EffectiveActorType => ActorType.Length > 0 ? ActorType :
+        Kind == PrincipalKind.Human ? "CLIENT_USER" : "SERVICE";
 }
 
 public static class ScopeAuthorizer
@@ -61,6 +69,9 @@ public static class EventValidator
         Check(value.SensorIdentity, "sensorIdentity", 200);
         Check(value.ParserVersion, "parserVersion", 80);
         Check(value.RawEventReference, "rawEventReference", 500);
+        if (value.RawEventReference?.StartsWith("evidence:", StringComparison.Ordinal) == true &&
+            !Guid.TryParse(value.RawEventReference[9..], out _))
+            errors["rawEventReference"] = ["Evidence references must contain a UUID."];
         if (value.SourceTimestamp == default || value.SourceTimestamp > DateTimeOffset.UtcNow.AddMinutes(5))
             errors["sourceTimestamp"] = ["Timestamp is missing or more than five minutes in the future."];
         if (value.Confidence < 0 || value.Confidence > 1)
@@ -117,6 +128,9 @@ public enum IncidentSeverity { Low, Medium, High, Critical }
 public sealed record CreateIncidentInput(string Title, string Severity);
 public sealed record IncidentSummary(Guid Id, string Title, IncidentSeverity Severity,
     string Status, DateTimeOffset CreatedAt);
+public sealed record IncidentActivityInput(string Kind, string Status, string Note);
+public sealed record IncidentActivitySummary(Guid Id, Guid IncidentId, string Kind,
+    string Status, string Note, DateTimeOffset OccurredAt);
 
 public enum PolicyOutcome { Allow, Deny, RequireApproval, Defer, RequestMoreEvidence }
 public enum ActionRisk { Read, Low, Medium, High, Critical }
